@@ -93,9 +93,8 @@ YouTube 채널 URL을 입력하세요: https://www.youtube.com/@examplechannel
 ## **구성 파일**
 
 - `main.py`: 메인 실행 파일
-- `cache/`: 캐시 데이터 저장 폴더
-- `temp/`: 임시 파일 저장 폴더
-- `requirements.txt`: 필요한 Python 패키지 리스트
+- `cache/`: 캐시 데이터 저장 폴더(main.py 실행시 자동생성됨)
+- `temp/`: 임시 파일 저장 폴더(main.py 실행시 자동생성됨)
 - `README.md`: 프로젝트 설명서
 
 ---
