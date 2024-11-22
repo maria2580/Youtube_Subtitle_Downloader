@@ -102,7 +102,7 @@ YouTube 채널 URL을 입력하세요: https://www.youtube.com/@examplechannel
 
 ## **주의 사항**
 
-- **API 키**: Google API 키를 `main.py`의 `API_KEY` 변수에 설정해야 합니다.
+- **API 키**: Google API 키를 `main.py`의 `API_KEY` 변수에 설정해야 합니다.(참고 : https://brunch.co.kr/@mystoryg/156)
 - **저작권**: 자막 데이터 사용 시 YouTube의 서비스 약관과 관련 법률을 준수해야 합니다.
 - **IP 차단 위험**: `yt-dlp`를 통해 자막을 대량으로 다운로드할 경우, IP 차단이 발생할 수 있습니다. 적절한 속도로 다운로드를 진행하세요.
 
