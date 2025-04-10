@@ -12,7 +12,7 @@ if not os.path.exists(TEMP_FOLDER):
     os.makedirs(TEMP_FOLDER)
 
 # 영상 ID 목록을 가져오는 함수 (flat-playlist 활용)
-def get_video_ids(channel_url, max_videos=None):
+def get_video_ids(channel_url, max_videos=None, start_date=None, end_date=None):
     print(f"[{datetime.now()}] 영상 ID 목록 수집 시작: {channel_url}")
     cmd = [
         "yt-dlp",
@@ -23,6 +23,10 @@ def get_video_ids(channel_url, max_videos=None):
 
     if max_videos:
         cmd.extend(["--playlist-end", str(max_videos)])
+    if start_date:
+        cmd.extend(["--dateafter", start_date.replace("-", "")])
+    if end_date:
+        cmd.extend(["--datebefore", end_date.replace("-", "")])
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     ids = [line.strip() for line in result.stdout.strip().split("\n") if line.strip()]
@@ -154,7 +158,7 @@ def collect_and_save_data(channel_url, sub_lang="ko", max_videos=None):
     video_ids = get_video_ids(channel_url, max_videos)
     processed_data = []
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=50) as executor:
         futures = [executor.submit(process_video, vid, sub_lang) for vid in video_ids]
 
         for future in as_completed(futures):
@@ -177,6 +181,8 @@ def get_valid_input(prompt, validation_func=None, optional=False):
         user_input = input(prompt)
         if optional and user_input.strip().lower() == "skip":
             return None
+        if optional and user_input.strip().lower() == "s":
+            return None
         if validation_func is None or validation_func(user_input):
             return user_input
         print("잘못된 입력입니다. 다시 시도해주세요.")
@@ -196,5 +202,7 @@ if __name__ == "__main__":
     subtitle_lang = input("자막 언어(ko, en 등)를 입력하세요: ")
     max_videos = get_valid_input("최대 영상 수(숫자 또는 'skip'): ", validate_positive_integer, optional=True)
     max_videos = int(max_videos) if max_videos else None
+    start_date = get_valid_input("시작일 (YYYY-MM-DD 또는 'skip:s'): ", validate_date_format, optional=True)
+    end_date = get_valid_input("종료일 (YYYY-MM-DD 또는 'skip:s'): ", validate_date_format, optional=True)
     collect_and_save_data(channel_url, subtitle_lang, max_videos)
 # https://www.youtube.com/@sbsnews8
