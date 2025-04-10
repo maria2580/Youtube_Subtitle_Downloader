@@ -11,40 +11,63 @@ TEMP_FOLDER = os.path.join(os.getcwd(), "temp")
 if not os.path.exists(TEMP_FOLDER):
     os.makedirs(TEMP_FOLDER)
 
-# 영상 목록을 yt-dlp로 직접 가져오는 함수
-def get_video_urls(channel_url, max_videos=None, start_date=None, end_date=None):
-    print(f"[{datetime.now()}] 영상 목록 수집 시작: {channel_url}")
+# 영상 ID 목록을 가져오는 함수 (flat-playlist 활용)
+def get_video_ids(channel_url, max_videos=None):
+    print(f"[{datetime.now()}] 영상 ID 목록 수집 시작: {channel_url}")
     cmd = [
         "yt-dlp",
-        "--dump-json",
-        "--skip-download",
-        "--playlist-end", str(max_videos) if max_videos else "50",
+        "--flat-playlist",
+        "--print", "%(id)s",
+        channel_url + "/videos"
     ]
 
-    if start_date:
-        cmd.extend(["--dateafter", start_date.replace("-", "")])
-    if end_date:
-        cmd.extend(["--datebefore", end_date.replace("-", "")])
-
-    cmd.append(channel_url + "/videos")
+    if max_videos:
+        cmd.extend(["--playlist-end", str(max_videos)])
 
     result = subprocess.run(cmd, capture_output=True, text=True)
+    ids = [line.strip() for line in result.stdout.strip().split("\n") if line.strip()]
+    print(f"[{datetime.now()}] 수집 완료: 총 {len(ids)}개 ID")
+    return ids
 
-    video_data = []
-    for line in result.stdout.strip().split('\n'):
-        try:
-            data = json.loads(line)
-            video_data.append({
-                "title": data.get("title"),
-                "url": data.get("webpage_url"),
-                "published_at": data.get("upload_date")
-            })
-        except json.JSONDecodeError:
-            print(f"[ERROR] JSON 파싱 실패: {line}")
+# 각 영상 ID에 대해 상세 정보 수집
 
-    return video_data
+from datetime import datetime
+
+
+def get_video_details(video_id):
+    cmd = [
+        "yt-dlp",
+        f"https://www.youtube.com/watch?v={video_id}",
+        "--dump-json",
+        "--skip-download"
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        data = json.loads(result.stdout)
+        timestamp = data.get("upload_timestamp")
+
+        if timestamp:
+            published_at = datetime.utcfromtimestamp(timestamp).isoformat() + "Z"
+        else:
+            upload_date = data.get("upload_date")
+            if upload_date:
+                # upload_date: "20250410" 형식 → ISO 형식으로 변환
+                published_at = datetime.strptime(upload_date, "%Y%m%d").isoformat() + "Z"
+            else:
+                published_at = None
+
+        return {
+            "title": data.get("title"),
+            "url": data.get("webpage_url"),
+            "published_at": published_at
+        }
+    except json.JSONDecodeError:
+        print(f"[ERROR] JSON 파싱 실패: {video_id}")
+        return None
+
 
 # 자막 다운로드 및 처리
+
 def get_subtitles(video_url, sub_lang="ko"):
     video_id = video_url.split("v=")[-1]
     subtitle_path = os.path.join(TEMP_FOLDER, f"{video_id}.{sub_lang}.vtt")
@@ -105,29 +128,34 @@ def clean_subtitles(subtitles):
     cleaned_subtitles = re.sub(r"\s{2,}", " ", cleaned_subtitles)
     return cleaned_subtitles.strip()
 
-def process_video(video, sub_lang):
+def process_video(video_id, sub_lang):
+    print(f"[{datetime.now()}] 조회 및 처리 시작: {video_id}")
+    video = get_video_details(video_id)
+    if not video:
+        print(f"[{datetime.now()}] 영상 정보 없음: {video_id}")
+        return None
+
     url = video["url"]
     title = video["title"]
-    print(f"[{datetime.now()}] 처리 시작: {url}")
     subtitles = get_subtitles(url, sub_lang)
     if subtitles:
         cleaned = clean_subtitles(subtitles)
-        print(f"[{datetime.now()}] 처리 완료: {url}")
+        print(f"[{datetime.now()}] 처리 완료: {video_id}")
         return {
             "Title": title,
             "Video URL": url,
             "Published At": video.get("published_at"),
             "Subtitles": cleaned
         }
-    print(f"[{datetime.now()}] 자막 없음 또는 처리 실패: {url}")
+    print(f"[{datetime.now()}] 자막 없음 또는 처리 실패: {video_id}")
     return None
 
-def collect_and_save_data(channel_url, sub_lang="ko", max_videos=None, start_date=None, end_date=None):
-    video_data = get_video_urls(channel_url, max_videos, start_date, end_date)
+def collect_and_save_data(channel_url, sub_lang="ko", max_videos=None):
+    video_ids = get_video_ids(channel_url, max_videos)
     processed_data = []
 
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(process_video, video, sub_lang) for video in video_data]
+        futures = [executor.submit(process_video, vid, sub_lang) for vid in video_ids]
 
         for future in as_completed(futures):
             result = future.result()
@@ -168,7 +196,5 @@ if __name__ == "__main__":
     subtitle_lang = input("자막 언어(ko, en 등)를 입력하세요: ")
     max_videos = get_valid_input("최대 영상 수(숫자 또는 'skip'): ", validate_positive_integer, optional=True)
     max_videos = int(max_videos) if max_videos else None
-    start_date = get_valid_input("시작일 (YYYY-MM-DD 또는 'skip'): ", validate_date_format, optional=True)
-    end_date = get_valid_input("종료일 (YYYY-MM-DD 또는 'skip'): ", validate_date_format, optional=True)
-
-    collect_and_save_data(channel_url, subtitle_lang, max_videos, start_date, end_date)
+    collect_and_save_data(channel_url, subtitle_lang, max_videos)
+# https://www.youtube.com/@sbsnews8
