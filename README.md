@@ -40,8 +40,33 @@ YouTube Subtitle Downloader는 YouTube API 및 `yt-dlp`를 사용하여 특정 �
     cd YouTube-Subtitle-Downloader
     
     ```
-    
-2. 필요한 Python 패키지를 설치합니다.
+
+2. 가상환경 생성:
+    ```bash
+    python -m venv venv
+    ```
+(여기서 "venv"는 가상환경 디렉토리 이름입니다. 원하는 이름으로 변경 가능)
+
+2.1 가상환경 활성화:
+
+Windows:
+    ```bash
+    venv\Scripts\activate
+    ```
+
+macOS/Linux:
+    ```bash
+    source venv/bin/activate
+    ```
+
+2.2 가상환경 비활성화는 다음 명령어를 사용하세요:
+
+모든 OS 공통:
+    ```bash
+    deactivate
+    ```
+
+3. 필요한 Python 패키지를 설치합니다.
     
     ```bash
     pip install -r requirements.txt
