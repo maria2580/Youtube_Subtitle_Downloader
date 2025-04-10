@@ -9,20 +9,24 @@ import json
 import datetime
 
 # Google API 설정
-API_KEY = "empty"  # 여기에 API 키 입력
+API_KEY = "AIzaSyDam5Y2UzWVmN09ODpUxDfxCmi1q6jJveo"  # 여기에 API 키 입력
 YOUTUBE_BASE_URL = "https://www.googleapis.com/youtube/v3"
+
 
 # 임시 폴더 및 캐시 폴더 설정
 TEMP_FOLDER = os.path.join(os.getcwd(), "temp")
 CACHE_FOLDER = os.path.join(os.getcwd(), "cache")
+
 
 # 폴더 생성
 for folder in [TEMP_FOLDER, CACHE_FOLDER]:
     if not os.path.exists(folder):
         os.makedirs(folder)
 
+
 # 캐시 파일 경로
 CACHE_FILE = os.path.join(CACHE_FOLDER, "channel_cache.json")
+
 
 # 캐시 초기화
 if not os.path.exists(CACHE_FILE):
@@ -79,10 +83,6 @@ def get_channel_id_from_handle(handle):
     if "items" in response and response["items"]:
         return response["items"][0]["id"]["channelId"]
     raise ValueError("핸들에서 채널 ID를 찾을 수 없습니다.")
-
-
-# 채널의 모든 영상 URL 가져오기
-from datetime import datetime
 
 
 def get_video_urls(api_key, channel_id, max_videos=None, start_date=None, end_date=None):
@@ -146,8 +146,6 @@ def get_video_urls(api_key, channel_id, max_videos=None, start_date=None, end_da
             break
 
     return video_data
-
-
 
 # 영상 자막 다운로드 (캐시 활용)
 def get_subtitles(video_url, sub_lang="ko"):
@@ -235,6 +233,7 @@ def clean_subtitles(subtitles):
     cleaned_subtitles = re.sub(r"\s{2,}", " ", cleaned_subtitles)
 
     return cleaned_subtitles.strip()
+
 
 # 스레드 풀을 활용한 데이터 수집
 def process_video(video_url, sub_lang):
