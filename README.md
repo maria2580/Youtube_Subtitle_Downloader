@@ -46,6 +46,12 @@ pip install requests yt-dlp
     python -m venv venv
     
     ```
+    또는
+    ```bash
+    py -m venv venv
+    
+    ```
+    
     
 3. **가상환경 활성화:**
     - **Windows:**
