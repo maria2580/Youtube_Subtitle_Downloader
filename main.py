@@ -5,6 +5,33 @@ import re
 import os
 import subprocess
 from datetime import datetime
+import sys
+
+# 로그 디렉토리 생성
+LOG_FOLDER = os.path.join(os.getcwd(), "logs")
+if not os.path.exists(LOG_FOLDER):
+    os.makedirs(LOG_FOLDER)
+
+# Logger 클래스 정의
+class Logger(object):
+    def __init__(self):
+        now = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_filename = os.path.join(LOG_FOLDER, f"log_{now}.txt")
+        self.terminal = sys.stdout
+        self.logfile = open(log_filename, "a", encoding="utf-8")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.logfile.write(message)
+
+    def flush(self):
+        self.terminal.flush()
+        self.logfile.flush()
+
+# stdout, stderr 리디렉션
+sys.stdout = Logger()
+sys.stderr = sys.stdout
+
 
 # 폴더 설정
 TEMP_FOLDER = os.path.join(os.getcwd(), "temp")
@@ -40,10 +67,6 @@ def get_video_ids(channel_url, max_videos=None, start_date=None, end_date=None):
     ids = [line.strip() for line in result.stdout.strip().split("\n") if line.strip()]
     print(f"[{datetime.now()}] 수집 완료: 총 {len(ids)}개 ID")
     return ids
-
-# 각 영상 ID에 대해 상세 정보 수집
-
-from datetime import datetime
 
 
 def get_video_details(video_id):
@@ -89,10 +112,11 @@ def get_subtitles(video_url, sub_lang="ko"):
             return file.read()
 
     result = subprocess.run(
-        ["yt-dlp", "--write-auto-sub", "--sub-lang", sub_lang, "--skip-download",
+        ["yt-dlp", "--write-auto-sub", "--sub-lang", sub_lang, "--skip-download", "--no-playlist","--retries 3",
          "--output", TEMP_FOLDER + "/" + "%(id)s.%(ext)s", video_url],
         capture_output=True, text=True
-    )
+    )#yt-dlp "https://www.youtube.com/watch?v=F7SHVpiRZIk" --write-auto-sub --sub-lang ko --sub-format vtt --skip-download --no-playlist --verbose
+
 
     if result.returncode == 0 and os.path.exists(subtitle_path):
         with open(subtitle_path, "r", encoding="utf-8") as file:
