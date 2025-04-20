@@ -98,6 +98,8 @@ def get_video_details(video_id):
         }
     except json.JSONDecodeError:
         print(f"[ERROR] JSON 파싱 실패: {video_id}")
+        print(f"yt-dlp stderr: {result.stderr}")
+        print(f"yt-dlp stdout: {result.stdout[:1000]}")
         return None
 
 
@@ -109,8 +111,9 @@ def get_subtitles(video_url, sub_lang="ko"):
 
     if os.path.exists(subtitle_path):
         with open(subtitle_path, "r", encoding="utf-8") as file:
+            print("받아놓은거 있네~")
             return file.read()
-
+    print("받아놓은거 없네...")
     result = subprocess.run(
         ["yt-dlp", "--write-auto-sub", "--sub-lang", sub_lang, "--skip-download", "--no-playlist","--retries 3",
          "--output", TEMP_FOLDER + "/" + "%(id)s.%(ext)s", video_url],
@@ -121,7 +124,9 @@ def get_subtitles(video_url, sub_lang="ko"):
     if result.returncode == 0 and os.path.exists(subtitle_path):
         with open(subtitle_path, "r", encoding="utf-8") as file:
             return file.read()
-
+    print("자막없음?")
+    print(f"yt-dlp stderr: {result.stderr}")
+    print(f"yt-dlp stdout: {result.stdout[:1000]}")
     return ""
 
 def clean_subtitles(subtitles):
@@ -139,13 +144,11 @@ def clean_subtitles(subtitles):
 
         while i < n:
             found_repeat = False
-            for length in range(1, n - i):
-                if length > 100:
-                    continue
+            for length in range(1, min(15, n - i)):
                 segment = words[i:i + length]
                 repetitions = 0
                 for j in range(i, min(i + length * 3, n), length):
-                    if words[j:j + length] == segment:
+                    if j + length <= n and words[j:j + length] == segment:
                         repetitions += 1
                     else:
                         break
@@ -186,17 +189,21 @@ def process_video(video_id, sub_lang):
     print(f"[{datetime.now()}] 자막 없음 또는 처리 실패: {video_id}")
     return None
 
-def collect_and_save_data(channel_url, sub_lang="ko", max_videos=None,start_date=None,end_date=None):
-    video_ids = get_video_ids(channel_url, max_videos,start_date,end_date)
+def collect_and_save_data(channel_url, sub_lang="ko", max_videos=None, start_date=None, end_date=None):
+    video_ids = get_video_ids(channel_url, max_videos, start_date, end_date)
     processed_data = []
 
     with ThreadPoolExecutor(max_workers=30) as executor:
         futures = [executor.submit(process_video, vid, sub_lang) for vid in video_ids]
-
         for future in as_completed(futures):
             result = future.result()
             if result:
                 processed_data.append(result)
+
+    from datetime import datetime
+    processed_data.sort(
+        key=lambda x: datetime.fromisoformat(x["Published At"].rstrip("Z"))
+    )
 
     channel_name = channel_url.rstrip('/').split("/")[-1]
     output_file = f"{channel_name}_subtitles.csv"
