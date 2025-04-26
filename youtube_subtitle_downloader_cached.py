@@ -84,14 +84,26 @@ def execute_command(cmd, retries=3, backoff_factor=1.5):
         try:
             logger.debug(f"명령 실행: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+            # ─── 멤버 전용 에러 감지 ───────────────────────────────────────
+            stderr = result.stderr or ""
+            if result.returncode != 0 and "available to this channel's members" in stderr or "Join this channel to get access" in stderr or "members-only content" in stderr:
+                logger.warning(f"멤버 전용 영상, 더 이상 재시도하지 않고 스킵합니다.")
+                # 강제로 재시도 횟수를 다 소진시켜 바로 함수 종료
+                attempt = retries
+                break
+            # ──────────────────────────────────────────────────────────
+
             if result.returncode == 0:
                 return result
-            last_error = f"반환 코드: {result.returncode}, stderr: {result.stderr}"
+            last_error = f"반환 코드: {result.returncode}, stderr: {stderr}"
+
         except subprocess.TimeoutExpired:
             last_error = "명령 실행 시간 초과"
         except Exception as e:
             last_error = str(e)
 
+        # 재시도
         attempt += 1
         wait_time = backoff_factor ** attempt
         logger.warning(f"명령 실패 ({attempt}/{retries}), {wait_time:.1f}초 후 재시도. 오류: {last_error}")
@@ -164,6 +176,7 @@ def get_video_details(video_id):
 
     cmd = [
         "yt-dlp",
+        "--no-warnings",
         f"https://www.youtube.com/watch?v={video_id}",
         "--dump-json",
         "--skip-download",
@@ -328,8 +341,8 @@ def process_video(video_id, sub_lang):
 
 def process_batch(video_ids, sub_lang, batch_idx, batch_size, output_file):
     batch_results = []
-
-    with ThreadPoolExecutor(max_workers=28) as executor:
+    global WORKER_NUM
+    with ThreadPoolExecutor(max_workers=WOKRER_NUM) as executor:
         futures = [executor.submit(process_video, vid, sub_lang) for vid in video_ids]
 
         for future in as_completed(futures):
@@ -392,7 +405,7 @@ def collect_and_save_data(channel_url, sub_lang="ko", max_videos=None, start_dat
     processed_count = 0
 
     # 배치 처리
-    BATCH_SIZE = 50  # 배치 크기 설정
+    BATCH_SIZE = 500  # 배치 크기 설정
     all_results = []
 
     for i in range(0, len(video_ids), BATCH_SIZE):
