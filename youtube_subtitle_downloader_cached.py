@@ -341,8 +341,8 @@ def process_video(video_id, sub_lang):
 
 def process_batch(video_ids, sub_lang, batch_idx, batch_size, output_file):
     batch_results = []
-    global WORKER_NUM
-    with ThreadPoolExecutor(max_workers=WOKRER_NUM) as executor:
+
+    with ThreadPoolExecutor(max_workers=50) as executor:
         futures = [executor.submit(process_video, vid, sub_lang) for vid in video_ids]
 
         for future in as_completed(futures):
