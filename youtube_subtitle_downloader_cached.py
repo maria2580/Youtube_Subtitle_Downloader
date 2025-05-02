@@ -42,28 +42,45 @@ logger = logging.getLogger(__name__)
 class Cache:
     def __init__(self, cache_dir):
         self.cache_dir = cache_dir
+        self.memory_cache = {}
         if not os.path.exists(cache_dir):
             os.makedirs(cache_dir)
+        self._preload_cache()
+
+    def _preload_cache(self):
+        logger.info(f"캐시 프리로드 시작: {self.cache_dir}")
+        preload_start = time.time()
+        count = 0
+
+        for filename in os.listdir(self.cache_dir):
+            if filename.endswith(".pkl"):
+                path = os.path.join(self.cache_dir, filename)
+                try:
+                    with open(path, "rb") as f:
+                        key = filename.replace(".pkl", "")
+                        self.memory_cache[key] = pickle.load(f)
+                        count += 1
+                except Exception as e:
+                    logger.warning(f"캐시 프리로드 실패: {e}")
+
+        elapsed = time.time() - preload_start
+        logger.info(f"캐시 프리로드 완료: {count}개 파일 로딩 ({elapsed:.1f}초 소요)")
 
     def get_cache_path(self, key):
         hashed_key = hashlib.md5(key.encode()).hexdigest()
         return os.path.join(self.cache_dir, f"{hashed_key}.pkl")
 
     def get(self, key):
-        cache_path = self.get_cache_path(key)
-        if os.path.exists(cache_path):
-            try:
-                with open(cache_path, 'rb') as f:
-                    return pickle.load(f)
-            except Exception as e:
-                logger.warning(f"캐시 로딩 실패: {e}")
-                return None
-        return None
+        hashed_key = hashlib.md5(key.encode()).hexdigest()
+        return self.memory_cache.get(hashed_key, None)
+
     def set(self, key, value):
         cache_path = self.get_cache_path(key)
+        hashed_key = hashlib.md5(key.encode()).hexdigest()
         try:
             with open(cache_path, 'wb') as f:
                 pickle.dump(value, f)
+            self.memory_cache[hashed_key] = value
             return True
         except Exception as e:
             logger.warning(f"캐시 저장 실패: {e}")
@@ -74,42 +91,53 @@ class Cache:
 video_cache = Cache(os.path.join(CACHE_FOLDER, "videos"))
 subtitle_cache = Cache(os.path.join(CACHE_FOLDER, "subtitles"))
 
+# yt-dlp 실행 동시 제한용 세마포어
+yt_dlp_semaphore = threading.Semaphore(30)  # 동시에 최대 50개 yt-dlp 실행
 
 # 요청 처리 및 재시도 로직
-def execute_command(cmd, retries=3, backoff_factor=1.5):
+def execute_command(cmd, retries=3, backoff_factor=1.5,timeout=60):
     attempt = 0
     last_error = None
+    # yt-dlp 실행 부분에 세마포어 걸기
+    with yt_dlp_semaphore:
+        while attempt < retries:
+            try:
+                logger.debug(f"명령 실행: {' '.join(cmd)}")
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
-    while attempt < retries:
-        try:
-            logger.debug(f"명령 실행: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                # ─── 멤버 전용 에러 감지 ───────────────────────────────────────
+                stderr = result.stderr or ""
+                if result.returncode != 0 and "available to this channel's members" in stderr or "Join this channel to get access" in stderr or "members-only content" in stderr:
+                    logger.warning(f"멤버 전용 영상, 더 이상 재시도하지 않고 스킵합니다.")
+                    # 강제로 재시도 횟수를 다 소진시켜 바로 함수 종료
+                    attempt = retries
+                    break
+                # ──────────────────────────────────────────────────────────
 
-            # ─── 멤버 전용 에러 감지 ───────────────────────────────────────
-            stderr = result.stderr or ""
-            if result.returncode != 0 and "available to this channel's members" in stderr or "Join this channel to get access" in stderr or "members-only content" in stderr:
-                logger.warning(f"멤버 전용 영상, 더 이상 재시도하지 않고 스킵합니다.")
-                # 강제로 재시도 횟수를 다 소진시켜 바로 함수 종료
-                attempt = retries
-                break
-            # ──────────────────────────────────────────────────────────
+                # ─── 성인 인증 에러 감지 ───────────────────────────────────────
+                stderr = result.stderr or ""
+                if result.returncode != 0 and "confirm your age" in stderr or "may be inappropriate for some users" in stderr or "members-only content" in stderr:
+                    logger.warning(f"멤버 전용 영상, 더 이상 재시도하지 않고 스킵합니다.")
+                    # 강제로 재시도 횟수를 다 소진시켜 바로 함수 종료
+                    attempt = retries
+                    break
+                # ──────────────────────────────────────────────────────────
+                if result.returncode == 0:
+                    return result
+                last_error = f"반환 코드: {result.returncode}, stderr: {stderr}"
 
-            if result.returncode == 0:
-                return result
-            last_error = f"반환 코드: {result.returncode}, stderr: {stderr}"
+            except subprocess.TimeoutExpired:
+                last_error = "명령 실행 시간 초과"
+            except Exception as e:
+                last_error = str(e)
 
-        except subprocess.TimeoutExpired:
-            last_error = "명령 실행 시간 초과"
-        except Exception as e:
-            last_error = str(e)
+            # 재시도
+            attempt += 1
+            wait_time = backoff_factor ** attempt
+            logger.warning(f"명령 실패 ({attempt}/{retries}), {wait_time:.1f}초 후 재시도. 오류: {last_error}")
+            time.sleep(wait_time)
 
-        # 재시도
-        attempt += 1
-        wait_time = backoff_factor ** attempt
-        logger.warning(f"명령 실패 ({attempt}/{retries}), {wait_time:.1f}초 후 재시도. 오류: {last_error}")
-        time.sleep(wait_time)
-
-    raise Exception(f"최대 재시도 횟수 초과: {last_error}")
+        raise Exception(f"최대 재시도 횟수 초과: {last_error}")
 
 
 # 영상 ID 목록을 가져오는 함수 (성능 개선)
@@ -147,7 +175,7 @@ def get_video_ids(channel_url, max_videos=None, start_date=None, end_date=None):
         cmd.extend(["--playlist-end", str(max_videos)])
 
     try:
-        result = execute_command(cmd)
+        result = execute_command(cmd,timeout=None)
         ids = [line.strip() for line in result.stdout.strip().split("\n") if line.strip()]
         logger.info(f"수집 완료: 총 {len(ids)}개 ID")
 
@@ -323,7 +351,7 @@ def process_video(video_id, sub_lang):
             with progress_lock:
                 processed_count += 1
                 if processed_count % 5 == 0 or processed_count == total_count:
-                    logger.info(f"진행 상황: {processed_count}/{total_count} ({processed_count / total_count * 100:.1f}%)")
+                    logger.info(f"진행 상황: {processed_count}/{total_count} ({processed_count / total_count * 100:.1f}%)"+f"현재 살아있는 스레드 수: {threading.active_count()}" )
 
             return result
 
@@ -339,20 +367,20 @@ def process_video(video_id, sub_lang):
     return None
 
 
-def process_batch(video_ids, sub_lang, batch_idx, batch_size, output_file):
+def process_batch(video_ids, sub_lang, batch_idx, batch_size, output_file,max_workers=1000):
     batch_results = []
 
-    with ThreadPoolExecutor(max_workers=50) as executor:
+    with ThreadPoolExecutor(max_workers) as executor:
         futures = [executor.submit(process_video, vid, sub_lang) for vid in video_ids]
-
         for future in as_completed(futures):
+
             try:
                 result = future.result()
                 if result:
                     batch_results.append(result)
             except Exception as e:
                 logger.error(f"Future 실행 중 오류: {e}")
-
+        
     # 배치 결과 저장
     if batch_results:
         batch_file = f"{output_file}.batch{batch_idx}"
@@ -383,7 +411,8 @@ def collect_and_save_data(channel_url, sub_lang="ko", max_videos=None, start_dat
     if not video_ids:
         logger.error("영상 ID를 가져오지 못했습니다.")
         return
-
+    check_cache_coverage(video_ids=video_ids)
+    check_cache_coverage(subtitle=video_ids)
     # 채널 핸들 추출
     if '@' in channel_url:
         channel_handle = channel_url.split('@')[-1].split('/')[0]
@@ -405,7 +434,7 @@ def collect_and_save_data(channel_url, sub_lang="ko", max_videos=None, start_dat
     processed_count = 0
 
     # 배치 처리
-    BATCH_SIZE = 500  # 배치 크기 설정
+    BATCH_SIZE = 5000  # 배치 크기 설정
     all_results = []
 
     for i in range(0, len(video_ids), BATCH_SIZE):
@@ -413,7 +442,7 @@ def collect_and_save_data(channel_url, sub_lang="ko", max_videos=None, start_dat
         batch_idx = i // BATCH_SIZE + 1
         logger.info(f"배치 {batch_idx} 처리 시작: {len(batch)}개 비디오")
 
-        batch_results = process_batch(batch, sub_lang, batch_idx, BATCH_SIZE, output_file)
+        batch_results = process_batch(batch, sub_lang, batch_idx, BATCH_SIZE, output_file, max_workers=max_videos)
         all_results.extend(batch_results)
 
         # 중간 결과 저장
@@ -481,6 +510,26 @@ def validate_date_format(value):
     except ValueError:
         return False
 
+def check_cache_coverage(lang="ko", subtitle=None,video_ids=None):
+    missing = []
+    if video_ids:
+        for vid in video_ids:
+            hashed_key = hashlib.md5(f"details_{vid}".encode()).hexdigest()
+            path = os.path.join(CACHE_FOLDER, "videos", f"{hashed_key}.pkl")
+            if not os.path.exists(path):
+                missing.append(vid)
+        logger.info(f"비디오 디테일 : 총 {len(video_ids)}개 중 {len(missing)}개 캐시 누락")
+        
+    if subtitle:
+        missing_subs = []
+        for vid in subtitle:
+            hashed_key = hashlib.md5(f"subtitle_{vid}_{lang}".encode()).hexdigest()
+            path = os.path.join(CACHE_FOLDER, "subtitles", f"{hashed_key}.pkl")
+            if not os.path.exists(path):
+                missing_subs.append(vid)
+        logger.info(f"자막 : 총 {len(subtitle)}개 중 {len(missing_subs)}개 캐시 누락")
+        missing.extend(missing_subs)
+    return missing
 
 if __name__ == "__main__":
     print("===== YouTube 자막 수집기 =====")
@@ -495,4 +544,7 @@ if __name__ == "__main__":
     start_date = get_valid_input(f"시작일 {date_format_msg}", validate_date_format, optional=True)
     end_date = get_valid_input(f"종료일 {date_format_msg}", validate_date_format, optional=True)
 
+
     collect_and_save_data(channel_url, subtitle_lang, max_videos, start_date, end_date)
+
+    #https://youtube.com/@sbsnews8
