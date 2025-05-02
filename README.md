@@ -57,6 +57,7 @@ pip install requests yt-dlp
     - **Windows:**
         
         ```bash
+        Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
         venv\Scripts\activate
         
         ```
