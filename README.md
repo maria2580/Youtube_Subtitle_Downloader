@@ -177,9 +177,3 @@ Pull Request를 제출해 주시면 감사하겠습니다.
 프로젝트와 관련된 질문이나 문의는 아래 이메일로 연락 바랍니다.
 
 **이메일:** marin6670@gmail.com
-
----
-
-이 README.md를 참고하여 YouTube Subtitle Downloader 프로젝트를 효율적으로 설정하고 사용할 수 있습니다. 필요에 따라 추가 정보를 보완하거나 수정하여 사용하세요.
-
-o3-mini
